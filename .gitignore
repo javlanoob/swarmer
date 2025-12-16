@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+
+# IntelliJ / VS Code
+.idea/
+.vscode/
+
+# Java build outputs
+bin/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Jars
+*.jar
