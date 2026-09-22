@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 
 @Getter
 @RequiredArgsConstructor
-enum HighlightMode
+public enum HighlightMode
 {
 	TRUE_TILE("True tile"),
 	TILE("Tile"),
