@@ -3,6 +3,7 @@ package com.swarmer;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -97,7 +98,8 @@ public class SwarmerPlugin extends Plugin
 	private int downs;
 	private int wave;
 	private int lastSpawnTick;
-	private int hitpointsXp;
+	// Last seen XP in each skill, to spot XP drops
+	private final Map<Skill, Integer> xp = new EnumMap<>(Skill.class);
 
 	// Read on every draw call, so cached instead of going through the config proxy
 	private boolean hideKilled;
@@ -118,7 +120,7 @@ public class SwarmerPlugin extends Plugin
 		loadConfig();
 		overlay.loadFont();
 		reset();
-		hitpointsXp = -1;
+		xp.clear();
 		inRoom = false;
 		wsClient.registerMessage(SwarmKilledMessage.class);
 		hooks.registerRenderableDrawListener(drawListener);
@@ -127,7 +129,7 @@ public class SwarmerPlugin extends Plugin
 		{
 			if (client.getGameState() == GameState.LOGGED_IN)
 			{
-				hitpointsXp = client.getSkillExperience(Skill.HITPOINTS);
+				loadXp();
 				inRoom = isInKephriRoom();
 			}
 		});
@@ -158,7 +160,7 @@ public class SwarmerPlugin extends Plugin
 		GameState state = event.getGameState();
 		if (state == GameState.LOGIN_SCREEN || state == GameState.HOPPING)
 		{
-			hitpointsXp = -1;
+			xp.clear();
 		}
 	}
 
@@ -275,14 +277,8 @@ public class SwarmerPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
-		if (event.getSkill() != Skill.HITPOINTS)
-		{
-			return;
-		}
-
-		int previous = hitpointsXp;
-		hitpointsXp = event.getXp();
-		if (previous >= 0 && hitpointsXp > previous)
+		Integer previous = xp.put(event.getSkill(), event.getXp());
+		if (previous != null && event.getXp() > previous)
 		{
 			processXpDrop();
 		}
@@ -291,17 +287,22 @@ public class SwarmerPlugin extends Plugin
 	@Subscribe
 	public void onFakeXpDrop(FakeXpDrop event)
 	{
-		// Sent instead of a stat change once Hitpoints is at 200m XP
-		if (event.getSkill() == Skill.HITPOINTS)
+		// Sent instead of a stat change once a skill is at 200m XP
+		processXpDrop();
+	}
+
+	private void loadXp()
+	{
+		for (Skill skill : Skill.values())
 		{
-			processXpDrop();
+			xp.put(skill, client.getSkillExperience(skill));
 		}
 	}
 
 	/**
-	 * Swarms have -100 defence and every hit on them is a max hit, so any damage kills one.
-	 * Hitpoints XP is given for damage dealt with every combat style and not for misses or
-	 * splashes, so an XP drop while attacking a swarm means it's dead before the hitsplat lands.
+	 * Swarms have -100 defence, so every hit on them lands and kills one. Killing one gives a
+	 * single XP in the attack style's skill and no Hitpoints XP, so an XP drop in any skill while
+	 * attacking a swarm means it's dead before the hitsplat lands.
 	 */
 	private void processXpDrop()
 	{

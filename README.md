@@ -1,7 +1,7 @@
 # Swarmer
 Nylo Death Indicators for the scarab swarms at Kephri in the Tombs of Amascut. Swarms have -100 defence and every hit on them is a max hit, so any damage kills one. A swarm is hidden as soon as it's hit, before the hitsplat lands and the death animation plays, so you can move straight on to the next one.
 
-- Your hits are read from your Hitpoints XP drop, which works for every combat style and ignores misses and splashes. Chinchompas and burst or barrage spells hide every swarm in the 3x3 around the target.
+- Your hits are read from your XP drop, in any skill, since a swarm gives no Hitpoints XP. Chinchompas and burst or barrage spells hide every swarm in the 3x3 around the target.
 - Hitsplats that land, from anyone, hide the swarm too.
 - In a RuneLite party, swarms hit by party members who also use the plugin are hidden for you as well.
 - If a hidden swarm is still alive 5 ticks later, it's shown again.

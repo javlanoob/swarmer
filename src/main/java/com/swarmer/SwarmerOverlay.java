@@ -9,12 +9,13 @@ import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.font.TextLayout;
-import java.util.HashMap;
-import java.util.Map;
+import java.awt.Rectangle;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import javax.inject.Inject;
 import net.runelite.api.NPC;
 import net.runelite.api.Point;
-import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
@@ -26,7 +27,8 @@ class SwarmerOverlay extends Overlay
 
 	private final SwarmerPlugin plugin;
 	private final SwarmerConfig config;
-	private final Map<WorldPoint, Integer> tileOffsets = new HashMap<>();
+	private final List<Swarm> sorted = new ArrayList<>();
+	private final List<Rectangle> drawn = new ArrayList<>();
 
 	private volatile Font font;
 
@@ -65,11 +67,14 @@ class SwarmerOverlay extends Overlay
 		graphics.setStroke(OUTLINE);
 		graphics.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		Color color = config.fontColor();
-		int lineHeight = graphics.getFontMetrics().getHeight();
 
-		// Swarms sharing a tile get their numbers stacked instead of drawn on top of each other
-		tileOffsets.clear();
-		for (Swarm swarm : plugin.getSwarms())
+		// Numbers that would overlap one already drawn are moved down below it. Going in a fixed
+		// order keeps each number in the same place from frame to frame.
+		sorted.clear();
+		sorted.addAll(plugin.getSwarms());
+		sorted.sort(Comparator.comparingInt(Swarm::getWave).thenComparingInt(swarm -> swarm.getNpc().getIndex()));
+		drawn.clear();
+		for (Swarm swarm : sorted)
 		{
 			NPC npc = swarm.getNpc();
 			int animation = npc.getAnimation();
@@ -86,12 +91,25 @@ class SwarmerOverlay extends Overlay
 				continue;
 			}
 
-			int offset = tileOffsets.merge(npc.getWorldLocation(), lineHeight, Integer::sum) - lineHeight;
 			Shape outline = new TextLayout(text, font, graphics.getFontRenderContext())
 				.getOutline(null);
+			Rectangle bounds = outline.getBounds();
+			bounds.translate(location.getX(), location.getY());
+			bounds.grow(1, 1);
+			for (int i = 0; i < drawn.size(); i++)
+			{
+				Rectangle other = drawn.get(i);
+				if (bounds.intersects(other))
+				{
+					bounds.y = other.y + other.height;
+					// Moving it can make it hit one that was already checked
+					i = -1;
+				}
+			}
+			drawn.add(bounds);
 
 			int x = location.getX();
-			int y = location.getY() + offset;
+			int y = bounds.y - outline.getBounds().y + 1;
 			graphics.translate(x, y);
 			graphics.setColor(Color.BLACK);
 			graphics.draw(outline);
