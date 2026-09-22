@@ -1,36 +1,39 @@
 package com.swarmer;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provides;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
 import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
-import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GameState;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
+import net.runelite.api.PlayerComposition;
 import net.runelite.api.Renderable;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.FakeXpDrop;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.StatChanged;
+import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.NpcID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.kit.KitType;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.callback.Hooks;
@@ -46,8 +49,8 @@ import net.runelite.client.ui.overlay.OverlayManager;
 
 @PluginDescriptor(
 	name = "Swarmer",
-	description = "Hides killed and late wave scarab swarms at Kephri and shows their wave numbers",
-	tags = {"toa", "tombs", "amascut", "kephri", "swarm", "scarab", "hide", "party"}
+	description = "Hides scarab swarms at Kephri as soon as they're dead, and shows their wave numbers",
+	tags = {"toa", "tombs", "amascut", "kephri", "swarm", "scarab", "death", "indicator", "hide", "party"}
 )
 public class SwarmerPlugin extends Plugin
 {
@@ -56,9 +59,23 @@ public class SwarmerPlugin extends Plugin
 	private static final int ANIMATION_KEPHRI_UP = 9581;
 	static final int ANIMATION_SWARM_LEAK = 9607;
 	static final int ANIMATION_SWARM_DEATH = 9608;
-	private static final int ANIMATION_MULTI_TARGET_SPELL = 1979;
 	private static final int SWARM_BASE_HP = 10;
+	// A hidden swarm that still has health this many ticks later was predicted wrong, so it's shown again
+	private static final int HIDDEN_TIMEOUT_TICKS = 5;
 	private static final String ROOM_FAIL_MESSAGE = "Your party failed to complete";
+
+	private static final Set<Integer> CHINCHOMPAS = ImmutableSet.of(
+		ItemID.CHINCHOMPA_CAPTURED, ItemID.CHINCHOMPA_BIG_CAPTURED, ItemID.CHINCHOMPA_BLACK);
+
+	// Hit more than one target, so their XP can't be split between swarms
+	private static final Set<Integer> UNSPLITTABLE_WEAPONS = ImmutableSet.of(
+		ItemID.SCYTHE_OF_VITUR, ItemID.SCYTHE_OF_VITUR_UNCHARGED,
+		ItemID.SCYTHE_OF_VITUR_OR, ItemID.SCYTHE_OF_VITUR_UNCHARGED_OR,
+		ItemID.SCYTHE_OF_VITUR_BL, ItemID.SCYTHE_OF_VITUR_UNCHARGED_BL,
+		ItemID.DEADMAN_BLIGHTED_SCYTHE_OF_VITUR, ItemID.DEADMAN_BLIGHTED_SCYTHE_OF_VITUR_UNCHARGED,
+		ItemID.DINHS_BULWARK,
+		ItemID.VENATOR_BOW, ItemID.VENATOR_BOW_UNCHARGED,
+		ItemID.VENATOR_BOW_ORNAMENT, ItemID.VENATOR_BOW_ORNAMENT_UNCHARGED);
 
 	@Inject
 	private Client client;
@@ -84,12 +101,8 @@ public class SwarmerPlugin extends Plugin
 	@Inject
 	private WSClient wsClient;
 
-	// Swarms spawned during the current down, by NPC index
+	// Swarms spawned since Kephri went down, by NPC index
 	private final Map<Integer, Swarm> swarms = new HashMap<>();
-	// Swarms killed by you or a party member that haven't despawned yet
-	private final Set<Integer> killed = new HashSet<>();
-	// Damage you've dealt to each swarm, worked out from Hitpoints XP
-	private final Map<Integer, Integer> damageDealt = new HashMap<>();
 	private final Hooks.RenderableDrawListener drawListener = this::shouldDraw;
 
 	private boolean inRoom;
@@ -122,7 +135,7 @@ public class SwarmerPlugin extends Plugin
 		reset();
 		hitpointsXp = -1;
 		inRoom = false;
-		wsClient.registerMessage(SwarmKilledMessage.class);
+		wsClient.registerMessage(SwarmDamagedMessage.class);
 		hooks.registerRenderableDrawListener(drawListener);
 		overlayManager.add(overlay);
 		clientThread.invoke(() ->
@@ -140,8 +153,8 @@ public class SwarmerPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		hooks.unregisterRenderableDrawListener(drawListener);
-		wsClient.unregisterMessage(SwarmKilledMessage.class);
-		reset();
+		wsClient.unregisterMessage(SwarmDamagedMessage.class);
+		clientThread.invoke(this::reset);
 	}
 
 	@Subscribe
@@ -172,6 +185,24 @@ public class SwarmerPlugin extends Plugin
 		{
 			inRoom = now;
 			reset();
+			return;
+		}
+
+		for (Swarm swarm : swarms.values())
+		{
+			if (!swarm.isKilled())
+			{
+				continue;
+			}
+
+			swarm.setHiddenTicks(swarm.getHiddenTicks() + 1);
+			if (swarm.getHiddenTicks() > HIDDEN_TIMEOUT_TICKS && swarm.getNpc().getHealthRatio() != 0)
+			{
+				// Not dead after all, most likely damage we couldn't see or a wrong hitpoints estimate
+				swarm.setHiddenTicks(-1);
+				swarm.setQueuedDamage(0);
+				swarm.getNpc().setDead(false);
+			}
 		}
 	}
 
@@ -229,28 +260,43 @@ public class SwarmerPlugin extends Plugin
 			lastSpawnTick = tick;
 		}
 
-		swarms.put(npc.getIndex(), new Swarm(npc, wave));
-		killed.remove(npc.getIndex());
-		damageDealt.remove(npc.getIndex());
+		swarms.put(npc.getIndex(), new Swarm(npc, wave, swarmHp));
 	}
 
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned event)
 	{
-		NPC npc = event.getNpc();
-		Swarm swarm = swarms.get(npc.getIndex());
-		if (swarm != null && swarm.getNpc() == npc)
+		Swarm swarm = getSwarm(event.getNpc());
+		if (swarm != null)
 		{
-			swarms.remove(npc.getIndex());
-			killed.remove(npc.getIndex());
-			damageDealt.remove(npc.getIndex());
+			swarms.remove(swarm.getNpc().getIndex());
 		}
+	}
+
+	@Subscribe
+	public void onHitsplatApplied(HitsplatApplied event)
+	{
+		if (!(event.getActor() instanceof NPC))
+		{
+			return;
+		}
+
+		Swarm swarm = getSwarm((NPC) event.getActor());
+		if (swarm == null)
+		{
+			return;
+		}
+
+		// Landed hits from anyone, including players without the plugin, count towards the swarm's health
+		int damage = event.getHitsplat().getAmount();
+		swarm.setHp(swarm.getHp() - damage);
+		swarm.setQueuedDamage(Math.max(0, swarm.getQueuedDamage() - damage));
+		checkKilled(swarm);
 	}
 
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
-		// Hitpoints XP is only given for damage dealt, so splashes and misses don't count
 		if (event.getSkill() != Skill.HITPOINTS)
 		{
 			return;
@@ -258,40 +304,111 @@ public class SwarmerPlugin extends Plugin
 
 		int previous = hitpointsXp;
 		hitpointsXp = event.getXp();
-		if (previous < 0 || hitpointsXp <= previous || swarms.isEmpty())
+		if (previous >= 0 && hitpointsXp > previous)
+		{
+			processXpDrop(hitpointsXp - previous);
+		}
+	}
+
+	@Subscribe
+	public void onFakeXpDrop(FakeXpDrop event)
+	{
+		// Sent instead of a stat change once Hitpoints is at 200m XP
+		if (event.getSkill() == Skill.HITPOINTS)
+		{
+			processXpDrop(event.getXp());
+		}
+	}
+
+	/**
+	 * Hitpoints XP is given for damage dealt with every combat style, at 4/3 XP per damage,
+	 * so unlike the attack style's own XP it doesn't need a table of weapons and spells.
+	 * Misses and splashes give none.
+	 */
+	private void processXpDrop(int xp)
+	{
+		if (swarms.isEmpty())
 		{
 			return;
 		}
 
 		Player player = client.getLocalPlayer();
 		Actor target = player == null ? null : player.getInteracting();
-		if (!(target instanceof NPC) || isMultiTargetAttack(player))
+		Swarm swarm = target instanceof NPC ? getSwarm((NPC) target) : null;
+		PlayerComposition composition = player == null ? null : player.getPlayerComposition();
+		if (swarm == null || composition == null)
 		{
 			return;
 		}
 
-		Swarm swarm = swarms.get(((NPC) target).getIndex());
-		if (swarm == null || swarm.getNpc() != target)
+		int weapon = composition.getEquipmentId(KitType.WEAPON);
+		if (UNSPLITTABLE_WEAPONS.contains(weapon))
 		{
 			return;
 		}
 
-		// Hitpoints XP is 4/3 per damage. Integer XP can round either way, so take the lowest damage it could be
-		int index = swarm.getNpc().getIndex();
-		int damage = damageDealt.merge(index, (3 * (hitpointsXp - previous) + 1) / 4, Integer::sum);
-		if (damage < swarmHp || !killed.add(index))
+		// XP is a whole number that can round either way, so take the lowest damage it could be
+		int damage = (3 * xp + 1) / 4;
+		int animation = player.getAnimation();
+		boolean multiTarget = CHINCHOMPAS.contains(weapon)
+			|| animation == AnimationID.ZAROS_VERTICAL_CASTING
+			|| animation == AnimationID.ZAROS_VERTICAL_CASTING_WALKMERGE;
+
+		if (multiTarget)
+		{
+			handleAreaAttack(swarm, damage);
+		}
+		else
+		{
+			sendDamage(swarm, damage);
+		}
+	}
+
+	/**
+	 * Chinchompas and burst or barrage spells hit everything around the target and the XP is the total.
+	 * It can't be split between them, so the swarms are only counted dead if it was enough for all of them.
+	 */
+	private void handleAreaAttack(Swarm target, int damage)
+	{
+		WorldPoint centre = target.getNpc().getWorldLocation();
+		List<Swarm> clump = new ArrayList<>();
+		int clumpHp = 0;
+		for (Swarm swarm : swarms.values())
+		{
+			if (!swarm.isKilled() && swarm.getNpc().getWorldLocation().distanceTo(centre) <= 1)
+			{
+				clump.add(swarm);
+				clumpHp += swarm.getRemainingHp();
+			}
+		}
+
+		if (clumpHp > damage)
+		{
+			return;
+		}
+
+		for (Swarm swarm : clump)
+		{
+			sendDamage(swarm, swarm.getRemainingHp());
+		}
+	}
+
+	private void sendDamage(Swarm swarm, int damage)
+	{
+		if (damage <= 0)
 		{
 			return;
 		}
 
 		if (partySync && partyService.isInParty())
 		{
-			partyService.send(new SwarmKilledMessage(swarm.getNpc().getIndex(), swarm.getWave()));
+			partyService.send(new SwarmDamagedMessage(swarm.getNpc().getIndex(), swarm.getWave(), damage));
 		}
+		queueDamage(swarm, damage);
 	}
 
 	@Subscribe
-	public void onSwarmKilledMessage(SwarmKilledMessage message)
+	public void onSwarmDamagedMessage(SwarmDamagedMessage message)
 	{
 		PartyMember local = partyService.getLocalMember();
 		if (!partySync || (local != null && local.getMemberId() == message.getMemberId()))
@@ -305,9 +422,34 @@ public class SwarmerPlugin extends Plugin
 			Swarm swarm = swarms.get(message.getNpcIndex());
 			if (swarm != null && swarm.getWave() == message.getWave())
 			{
-				killed.add(message.getNpcIndex());
+				queueDamage(swarm, message.getDamage());
 			}
 		});
+	}
+
+	private void queueDamage(Swarm swarm, int damage)
+	{
+		swarm.setQueuedDamage(swarm.getQueuedDamage() + damage);
+		checkKilled(swarm);
+	}
+
+	private void checkKilled(Swarm swarm)
+	{
+		if (!swarm.isKilled() && swarm.getRemainingHp() <= 0)
+		{
+			swarm.setHiddenTicks(0);
+			if (hideKilled)
+			{
+				// Lets other plugins, like NPC indicators, treat it as dead too
+				swarm.getNpc().setDead(true);
+			}
+		}
+	}
+
+	private Swarm getSwarm(NPC npc)
+	{
+		Swarm swarm = swarms.get(npc.getIndex());
+		return swarm != null && swarm.getNpc() == npc ? swarm : null;
 	}
 
 	Collection<Swarm> getSwarms()
@@ -317,8 +459,7 @@ public class SwarmerPlugin extends Plugin
 
 	boolean isHidden(Swarm swarm)
 	{
-		return (hideKilled && killed.contains(swarm.getNpc().getIndex()))
-			|| (hideHighSwarms && isHighWave(swarm));
+		return (hideKilled && swarm.isKilled()) || (hideHighSwarms && isHighWave(swarm));
 	}
 
 	boolean isNumberHidden(Swarm swarm)
@@ -338,33 +479,14 @@ public class SwarmerPlugin extends Plugin
 			return true;
 		}
 
-		NPC npc = (NPC) renderable;
-		Swarm swarm = swarms.get(npc.getIndex());
-		return swarm == null || swarm.getNpc() != npc || !isHidden(swarm);
-	}
-
-	/**
-	 * Chinchompas and burst or barrage spells split their XP between several targets,
-	 * so the XP can't be credited to the swarm you clicked.
-	 */
-	private boolean isMultiTargetAttack(Player player)
-	{
-		if (player.getAnimation() == ANIMATION_MULTI_TARGET_SPELL)
-		{
-			return true;
-		}
-
-		ItemContainer worn = client.getItemContainer(InventoryID.WORN);
-		Item weapon = worn == null ? null : worn.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
-		int weaponId = weapon == null ? -1 : weapon.getId();
-		return weaponId == ItemID.CHINCHOMPA_CAPTURED || weaponId == ItemID.CHINCHOMPA_BIG_CAPTURED
-			|| weaponId == ItemID.CHINCHOMPA_BLACK;
+		Swarm swarm = getSwarm((NPC) renderable);
+		return swarm == null || !isHidden(swarm);
 	}
 
 	/**
 	 * Swarm hitpoints scale like other raid NPCs. This matches the Tombs of Amascut plugin's
 	 * Akkha shadow formula. Path level and party size may not apply to swarms, but counting them
-	 * can only make a swarm tougher, so a living swarm is never hidden because of them.
+	 * only makes a swarm tougher, so a living swarm is never hidden because of them.
 	 */
 	private int calculateSwarmHp()
 	{
@@ -434,9 +556,14 @@ public class SwarmerPlugin extends Plugin
 
 	private void reset()
 	{
+		for (Swarm swarm : swarms.values())
+		{
+			if (swarm.isKilled())
+			{
+				swarm.getNpc().setDead(false);
+			}
+		}
 		swarms.clear();
-		killed.clear();
-		damageDealt.clear();
 		kephriDowned = false;
 		downs = 0;
 		wave = 0;
