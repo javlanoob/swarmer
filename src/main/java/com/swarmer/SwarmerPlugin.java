@@ -417,6 +417,12 @@ public class SwarmerPlugin extends Plugin
 		return isHidden(swarm) || (hideHighNumbers && isHighWave(swarm));
 	}
 
+	boolean isHighlightHidden(Swarm swarm)
+	{
+		// Only swarms still worth attacking are highlighted
+		return swarm.isKilled() || isHighWave(swarm);
+	}
+
 	private boolean isHighWave(Swarm swarm)
 	{
 		return swarm.getWave() > (downs <= 1 ? phase1Threshold : phase2Threshold);

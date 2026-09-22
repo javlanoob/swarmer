@@ -7,5 +7,6 @@ Nylo Death Indicators for the scarab swarms at Kephri in the Tombs of Amascut. S
 - If a hidden swarm is still alive 5 ticks later, it's shown again.
 - Can hide swarms, or just their wave numbers, above a wave threshold. These late swarms can't reach Kephri before she gets back up. There is a separate threshold for her first down and for later downs.
 - Shows the wave each swarm spawned in above it. If you use this, turn off the Swarmer overlay in the Tombs of Amascut plugin so the numbers aren't drawn twice.
+- Can highlight swarms like NPC Indicators, by true tile, tile, hull or outline, in any color. Only swarms that are still alive and under the wave threshold are highlighted.
 
 Based on Nylo Death Indicators by InfernoStats. The wave number overlay is based on the one in the Tombs of Amascut plugin by LlemonDuck.

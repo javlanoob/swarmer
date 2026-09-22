@@ -14,29 +14,38 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import javax.inject.Inject;
+import net.runelite.api.Client;
 import net.runelite.api.NPC;
+import net.runelite.api.Perspective;
+import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.Point;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.OverlayUtil;
+import net.runelite.client.ui.overlay.outline.ModelOutlineRenderer;
 
 class SwarmerOverlay extends Overlay
 {
 	private static final Stroke OUTLINE = new BasicStroke(3);
 
+	private final Client client;
 	private final SwarmerPlugin plugin;
 	private final SwarmerConfig config;
+	private final ModelOutlineRenderer outlineRenderer;
 	private final List<Swarm> sorted = new ArrayList<>();
 	private final List<Rectangle> drawn = new ArrayList<>();
 
 	private volatile Font font;
 
 	@Inject
-	SwarmerOverlay(SwarmerPlugin plugin, SwarmerConfig config)
+	SwarmerOverlay(Client client, SwarmerPlugin plugin, SwarmerConfig config, ModelOutlineRenderer outlineRenderer)
 	{
+		this.client = client;
 		this.plugin = plugin;
 		this.config = config;
+		this.outlineRenderer = outlineRenderer;
 		setPosition(OverlayPosition.DYNAMIC);
 		setLayer(OverlayLayer.ABOVE_SCENE);
 		setPriority(PRIORITY_HIGH);
@@ -58,7 +67,17 @@ class SwarmerOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		if (!config.showNumbers() || plugin.getSwarms().isEmpty())
+		if (plugin.getSwarms().isEmpty())
+		{
+			return null;
+		}
+
+		if (config.highlight())
+		{
+			renderHighlights(graphics);
+		}
+
+		if (!config.showNumbers())
 		{
 			return null;
 		}
@@ -118,5 +137,52 @@ class SwarmerOverlay extends Overlay
 			graphics.translate(-x, -y);
 		}
 		return null;
+	}
+
+	private void renderHighlights(Graphics2D graphics)
+	{
+		HighlightMode mode = config.highlightMode();
+		Color color = config.highlightColor();
+		Color fill = new Color(color.getRed(), color.getGreen(), color.getBlue(), color.getAlpha() / 5);
+		for (Swarm swarm : plugin.getSwarms())
+		{
+			NPC npc = swarm.getNpc();
+			int animation = npc.getAnimation();
+			if (animation == SwarmerPlugin.ANIMATION_SWARM_DEATH || animation == SwarmerPlugin.ANIMATION_SWARM_LEAK
+				|| plugin.isHighlightHidden(swarm))
+			{
+				continue;
+			}
+
+			Shape shape = null;
+			switch (mode)
+			{
+				case TRUE_TILE:
+					// The tile the server has it on, rather than where it's drawn mid-walk
+					LocalPoint tile = LocalPoint.fromWorld(npc.getWorldView(), npc.getWorldLocation());
+					if (tile != null)
+					{
+						int size = npc.getComposition().getSize();
+						shape = Perspective.getCanvasTileAreaPoly(client, tile.plus(
+							(size - 1) * Perspective.LOCAL_HALF_TILE_SIZE, (size - 1) * Perspective.LOCAL_HALF_TILE_SIZE), size);
+					}
+					break;
+				case TILE:
+					shape = npc.getCanvasTilePoly();
+					break;
+				case HULL:
+					shape = npc.getConvexHull();
+					break;
+				case OUTLINE:
+					outlineRenderer.drawOutline(npc, 2, color, 4);
+					break;
+			}
+
+			if (shape != null)
+			{
+				OverlayUtil.renderPolygon(graphics, shape, color, fill, new BasicStroke(2));
+			}
+		}
+		graphics.setStroke(OUTLINE);
 	}
 }

@@ -1,6 +1,7 @@
 package com.swarmer;
 
 import java.awt.Color;
+import net.runelite.client.config.Alpha;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -25,6 +26,13 @@ public interface SwarmerConfig extends Config
 		position = 20
 	)
 	String numberSection = "numbers";
+
+	@ConfigSection(
+		name = "Highlight",
+		description = "Highlight around each swarm that's still alive and under the wave threshold",
+		position = 30
+	)
+	String highlightSection = "highlight";
 
 	@ConfigItem(
 		keyName = "hideKilled",
@@ -146,5 +154,42 @@ public interface SwarmerConfig extends Config
 	default Color fontColor()
 	{
 		return Color.WHITE;
+	}
+
+	@ConfigItem(
+		keyName = "highlight",
+		name = "Highlight swarms",
+		description = "Highlight swarms that are still alive and under the wave threshold",
+		position = 31,
+		section = highlightSection
+	)
+	default boolean highlight()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "highlightMode",
+		name = "Mode",
+		description = "How swarms are highlighted",
+		position = 32,
+		section = highlightSection
+	)
+	default HighlightMode highlightMode()
+	{
+		return HighlightMode.TRUE_TILE;
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "highlightColor",
+		name = "Color",
+		description = "Color of the highlight",
+		position = 33,
+		section = highlightSection
+	)
+	default Color highlightColor()
+	{
+		return Color.CYAN;
 	}
 }
