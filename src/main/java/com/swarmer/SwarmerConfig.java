@@ -29,7 +29,7 @@ public interface SwarmerConfig extends Config
 	@ConfigItem(
 		keyName = "hideKilled",
 		name = "Hide killed swarms",
-		description = "Hide a swarm as soon as the damage dealt to it is enough to kill it",
+		description = "Hide a swarm as soon as a hit on it deals damage, before the hitsplat lands",
 		position = 0
 	)
 	default boolean hideKilled()
@@ -40,7 +40,7 @@ public interface SwarmerConfig extends Config
 	@ConfigItem(
 		keyName = "partySync",
 		name = "Party sync",
-		description = "Share your damage on swarms with party members using this plugin",
+		description = "Share swarms you hit with party members using this plugin",
 		position = 1
 	)
 	default boolean partySync()
