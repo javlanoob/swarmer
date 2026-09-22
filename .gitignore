@@ -1,21 +1,10 @@
-# Gradle
-.gradle/
-build/
-
-# IntelliJ / VS Code
+.gradle
+build
 .idea/
-.vscode/
-
-# Java build outputs
-bin/
-out/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Jars
-*.jar
+.project
+.settings/
+.classpath
+nbactions.xml
+nb-configuration.xml
+nbproject/
+*.class

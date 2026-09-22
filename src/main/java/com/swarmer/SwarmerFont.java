@@ -1,30 +1,26 @@
-package com.javlanoob;
+package com.swarmer;
 
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 @Getter
-public enum SwarmerFonts
+@RequiredArgsConstructor
+public enum SwarmerFont
 {
-	REGULAR("RS Regular"),
+	RUNESCAPE("RuneScape"),
 	ARIAL("Arial"),
 	CAMBRIA("Cambria"),
 	ROCKWELL("Rockwell"),
-	SEGOE_UI("Segoe Ui"),
+	SEGOE_UI("Segoe UI"),
 	TIMES_NEW_ROMAN("Times New Roman"),
 	VERDANA("Verdana"),
-	DIALOG("DIALOG"),
-	RUNESCAPE("RuneScape");
+	DIALOG("Dialog");
 
 	private final String name;
 
+	@Override
 	public String toString()
 	{
-		return this.name;
+		return name;
 	}
-
-	SwarmerFonts(String name)
-	{
-		this.name = name;
-	}
-
 }
