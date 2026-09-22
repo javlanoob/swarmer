@@ -45,8 +45,8 @@ import net.runelite.client.ui.overlay.OverlayManager;
 
 @PluginDescriptor(
 	name = "Swarmer",
-	description = "Hides scarab swarms at Kephri as soon as they're hit, and shows their wave numbers",
-	tags = {"toa", "tombs", "amascut", "kephri", "swarm", "scarab", "death", "indicator", "hide", "party"}
+	description = "Hides scarab swarms at Kephri as soon as they're hit",
+	tags = {"toa", "tombs", "amascut", "kephri", "swarm", "scarab", "death", "indicator", "hide", "highlight", "party"}
 )
 public class SwarmerPlugin extends Plugin
 {
