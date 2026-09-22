@@ -101,7 +101,6 @@ public class SwarmerPlugin extends Plugin
 
 	// Read on every draw call, so cached instead of going through the config proxy
 	private boolean hideKilled;
-	private boolean partySync;
 	private boolean hideHighSwarms;
 	private boolean hideHighNumbers;
 	private int phase1Threshold;
@@ -354,7 +353,7 @@ public class SwarmerPlugin extends Plugin
 			return;
 		}
 
-		if (partySync && partyService.isInParty())
+		if (partyService.isInParty())
 		{
 			partyService.send(new SwarmKilledMessage(swarm.getNpc().getIndex(), swarm.getWave()));
 		}
@@ -365,7 +364,7 @@ public class SwarmerPlugin extends Plugin
 	public void onSwarmKilledMessage(SwarmKilledMessage message)
 	{
 		PartyMember local = partyService.getLocalMember();
-		if (!partySync || (local != null && local.getMemberId() == message.getMemberId()))
+		if (local != null && local.getMemberId() == message.getMemberId())
 		{
 			return;
 		}
@@ -443,7 +442,6 @@ public class SwarmerPlugin extends Plugin
 	private void loadConfig()
 	{
 		hideKilled = config.hideKilled();
-		partySync = config.partySync();
 		hideHighSwarms = config.hideHighSwarms();
 		hideHighNumbers = config.hideHighNumbers();
 		phase1Threshold = config.phase1Threshold();

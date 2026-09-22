@@ -38,17 +38,6 @@ public interface SwarmerConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "partySync",
-		name = "Party sync",
-		description = "Share swarms you hit with party members using this plugin",
-		position = 1
-	)
-	default boolean partySync()
-	{
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "hideHighSwarms",
 		name = "Hide high wave swarms",
 		description = "Hide swarms above the wave threshold",
